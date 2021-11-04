@@ -1,0 +1,35 @@
+---
+
+################################################################################
+################################################################################
+## DIRECTORIES
+################################################################################
+################################################################################
+
+work: "/home-3/mstaros1@jhu.edu/work-mschatz1/mstarostik"
+
+project: "aalessi2-133698/" 
+
+################################################################################
+################################################################################
+## REFERENCE SEQUENCES AND ANNOTATIONS
+################################################################################
+################################################################################
+
+reference: '/home-3/mstaros1@jhu.edu/work-zfs/mstarostik/REFERENCES/Celegans/WBcel235_Ensembl97.269/'
+
+sequences:
+  genomeFASTA: "/home-3/mstaros1@jhu.edu/work-zfs/mstarostik/REFERENCES/Celegans/WBcel235_Ensembl97.269/ORIGINAL/Caenorhabditis_elegans.WBcel235.dna.toplevel.fa"
+
+annotations:
+  genomeGTF: "/home-3/mstaros1@jhu.edu/work-zfs/mstarostik/REFERENCES/Celegans/WBcel235_Ensembl97.269/ORIGINAL/Caenorhabditis_elegans.WBcel235.97.gtf"
+
+################################################################################
+################################################################################
+## PARAMETERS FOR EXECUTABLES
+################################################################################
+################################################################################
+
+trimmomatic:
+  adapters: "/home-3/mstaros1@jhu.edu/tools/trimmomatic-0.39/adapters/TruSeq3-PE-2.fa"
+  jar: "/home-3/mstaros1@jhu.edu/tools/trimmomatic-0.39/trimmomatic-0.39.jar"

@@ -1,0 +1,172 @@
+---
+layout: post
+title: <span style="font-size:28px">DAF-16 data analysis (HK1 & HK7 removed)</span>
+subtitle: <span style="font-size:24px">DAF-16 Project</span>
+date: 2021-03-06
+output: html_notebook
+---
+---
+```{r setup, include = FALSE}
+# list of packages
+PackageList <- c("data.table", "DESeq2", "here", "tidyverse")
+
+# check and install missing packages
+# obtained from: https://stackoverflow.com/questions/4090169/elegant-way-to-check-for-missing-packages-and-install-them
+install.packages.auto <- function(x) { 
+  if (isTRUE(x %in% .packages(all.available = TRUE))) { 
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  } else { 
+    #update.packages(ask= FALSE) #update installed packages.
+    eval(parse(text = sprintf("install.packages(\"%s\", dependencies = TRUE)", x)))
+  }
+  if(isTRUE(x %in% .packages(all.available = TRUE))) { 
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  } else {
+    if (!requireNamespace("BiocManager", quietly = TRUE))
+      install.packages("BiocManager")
+    eval(parse(text = sprintf("BiocManager::install(\"%s\")", x, update = FALSE)))
+    eval(parse(text = sprintf("require(\"%s\")", x)))
+  }
+}
+lapply(PackageList, function(x) {message(x); install.packages.auto(x)})
+
+# change global default setting so every data frame created will not auto-convert to factors unless explicitly instructed
+options(stringsAsFactors = FALSE)
+
+# set global options that apply to every chunk in this file
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```  
+### Overview ###
+
+
+#### prepare data for differential expression ####
+Differential expression to be performed only on protein-coding genes. Remove HK1 and HK7 from analysis.
+```{r data}
+# read in metadata
+metadata <- fread(here("../data/DAF16-metadata.txt"),
+                  data.table = FALSE) %>%
+  filter(name != c("HK1", "HK7")) %>%
+  tibble::column_to_rownames("name")
+
+
+# read in WBcel235 gene-level annotation and filter for protein-coding genes
+annotation <- fread(here("../data/WBcel235-GeneAnnotation.txt"), 
+                    data.table = FALSE) %>%
+  filter(biotype == "protein_coding") # 20191
+
+# read in annotated expected counts matrix and filter for protein-coding genes
+counts <- fread(here("../data/DAF16-RSEM-AnnotatedExpectedCounts.txt"),
+                data.table = FALSE) %>%
+  filter(gene_name %in% annotation$gene_name) %>%
+  dplyr::select(gene_name, 
+                HK5, HK6, 
+                HK2, HK4) %>%
+  tibble::column_to_rownames("gene_name") # 20191
+
+# order data by row names and column names so that DESeqDataSetFromMatrix object is properly ordered
+metadata <- metadata[rownames(metadata) %in% colnames(counts), ]
+metadata <- metadata[order(rownames(metadata)), ] # order by sample name
+
+counts <- counts[order(rownames(counts)), ] # order by gene name
+counts <- counts[, order(colnames(counts))] # order by sample name
+
+# double-check
+rownames(metadata) == colnames(counts)
+```
+
+
+
+```{r DESeqDataSetFromMatrix}
+# form DESeqDataSetFromMatrix object using counts matrix, metadata, and gene annotation.
+dds <- DESeqDataSetFromMatrix(countData = round(counts),
+                              colData = metadata,
+                              design = ~genotype)
+dds <- DESeq(dds)
+```
+
+
+
+```{r NormalizedCounts}
+# generate normalized counts and merge with gene-level WBcel235 reference annotation
+NormCounts <- as.data.frame(counts(dds, normalized = TRUE)) %>%
+  add_rownames("gene_name") %>%
+  left_join(annotation, by = c("gene_name" = "gene_name")) %>%
+  relocate(wormbase_gene, .after = gene_name) %>%
+  relocate(chr, .after = wormbase_gene) %>%
+  relocate(start, .after = chr) %>%
+  relocate(end, .after = start) %>%
+  relocate(strand, .after = end) %>%
+  relocate(biotype, .after = strand)
+  
+write.table(NormCounts, 
+            here("../data/DAF16-NormalizedCounts-NoHK1NoHK7.txt"), 
+            quote = FALSE, 
+            row.names = FALSE, 
+            col.names = TRUE, 
+            sep = "\t")
+
+# generate log2(normalized counts + 1)
+log2NormCounts <- NormCounts %>%
+  mutate(log2_HK2 = log2(HK2+1),
+         log2_HK4 = log2(HK4+1),
+         log2_HK5 = log2(HK5+1),
+         log2_HK6 = log2(HK6+1)) %>%
+  dplyr::select(-c(HK2, HK4, HK5, HK6))
+
+write.table(log2NormCounts, 
+            here("../data/DAF16-log2NormalizedCounts-NoHK1NoHK7.txt"), 
+            quote = FALSE, 
+            row.names = FALSE, 
+            col.names = TRUE, 
+            sep = "\t")
+```
+
+
+
+```{r DifferentialExpression}
+# extract differential expression results
+VT2127_vs_CB1372 <- results(dds, contrast = c("genotype", "VT2127", "CB1372"))
+
+# generate annotated differential expression results and write to file
+results <- as.data.frame(VT2127_vs_CB1372) %>%
+  add_rownames("gene_name") %>%
+  right_join(annotation, 
+             by = c("gene_name")) %>%
+  left_join(NormCounts, by = c("wormbase_gene", "gene_name", "chr", "start", "end", "strand", "biotype")) %>%
+  dplyr::select(-c("baseMean", "lfcSE", "stat"))
+
+write.table(results, 
+            here("../results/NoHK1NoHK7/VT2127vsCB1372-DifferentialExpression-NoHK1NoHK7.txt"), 
+            row.names = FALSE, 
+            quote = FALSE, 
+            sep = "\t")
+```
+
+
+
+```{r Diagnostics}
+# write to file
+pdf(here("../results/NoHK1NoHK7/VT2127vsCB1372-DE-DiagnosticPlots-NoHK1NoHK7.pdf"),
+    height = 6,
+    width = 6,
+    useDingbats = FALSE)
+
+# histogram of p-values from differential expression analysis
+ggplot(as.data.frame(VT2127_vs_CB1372), aes(pvalue)) + 
+  geom_histogram(binwidth = 0.05, center = 0.025) + 
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"),
+        text = element_text(size = 12, family = "Helvetica")) +
+  theme(plot.margin=unit(c(1, 1, 1, 1), "cm")) +
+  scale_y_continuous(limits = c(0, 6000), expand = c(0, 0)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.25), limits = c(0.00, 1.00), expand = c(0, 0)) +
+  labs(x = "p-value", y = "count")
+# MA plot
+MAPlot <- plotMA(VT2127_vs_CB1372, ylim = c(-1, 1))
+# disperion plot
+DispersionPlot <- plotDispEsts(dds, ylim = c(1e-6, 1e2))
+
+dev.off()
+```
